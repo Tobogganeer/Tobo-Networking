@@ -196,7 +196,7 @@ namespace Tobo.Net
 {
     public abstract class Packet
     {
-        private static class HashCache<THash>
+        internal static class HashCache<THash>
         {
             // https://github.com/RevenantX/LiteNetLib/blob/a4c61341b90f475b058cd14188d145eaa40544ed/LiteNetLib/Utils/NetSerializer.cs#L677
             // https://github.com/RevenantX/LiteNetLib/blob/master/LiteNetLib/Utils/NetPacketProcessor.cs#L14
@@ -225,7 +225,7 @@ namespace Tobo.Net
 
         public abstract void Deserialize(ByteBuffer buf, Args args);
 
-        private ByteBuffer GetBuffer()
+        public ByteBuffer GetBuffer()
         {
             ByteBuffer buf = ByteBuffer.Get();
             buf.Write(hashes[GetType()]);
@@ -233,22 +233,22 @@ namespace Tobo.Net
             return buf;
         }
 
-        public void Send()
+        public void Send(SendMode mode = SendMode.Reliable)
         {
-            NetworkManager.SendBufferToServer(GetBuffer());
+            NetworkManager.SendToServer(this, mode);
         }
 
-        public void SendToAll()
+        public void SendToAll(SendMode mode = SendMode.Reliable)
         {
-            NetworkManager.SendBufferToAllClients(GetBuffer());
+            NetworkManager.SendToAll(this, mode);
         }
 
-        public void SendTo(Client client, bool blacklist = false)
+        public void SendTo(Client client, bool blacklist = false, SendMode mode = SendMode.Reliable)
         {
             if (blacklist)
-                NetworkManager.SendBufferToAllClients(GetBuffer(), client);
+                NetworkManager.SendToAll(this, client, mode);
             else
-                NetworkManager.SendBufferToClient(GetBuffer(), client);
+                NetworkManager.SendTo(this, client, mode);
         }
 
 
@@ -274,14 +274,23 @@ namespace Tobo.Net
 
         public struct Args
         {
-            public ulong clientID;
-            public Client Client => Client.All[clientID] ?? null;
+            public Client client;
+            //public Client Client => Client.All[clientID] ?? null;
 
             public Args(Client client)
             {
-                clientID = client.ID;
+                this.client = client;
             }
         }
+    }
+
+    [Flags]
+    public enum SendMode
+    {
+        Unreliable = 0,
+        NoNagle = 1 << 0,
+        NoDelay = 1 << 2,
+        Reliable = 1 << 3
     }
 
     // https://eddieabbondanz.io/post/unity/litenetlib-sending-data/

@@ -11,10 +11,10 @@ public class NetworkTest : MonoBehaviour
         if (Keyboard.current.sKey.wasPressedThisFrame)
         {
             Debug.Log("Host");
-            NetworkManager.Host();
+            NetworkManager.Host("Username weehee");
         }
-        if (Keyboard.current.dKey.wasPressedThisFrame)
-            NetworkManager.DisconnectClient();
+        //if (Keyboard.current.dKey.wasPressedThisFrame)
+        //    NetworkManager.DisconnectClient();
         //if (Keyboard.current.rKey.wasPressedThisFrame)
         //    NetworkManager.Run();
     }

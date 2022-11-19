@@ -10,17 +10,20 @@ namespace Tobo.Net
 {
     public class ByteBuffer
     {
-        private static readonly ByteBuffer send = new ByteBuffer(BufferSize);
+        private static readonly ByteBuffer buf1 = new ByteBuffer(BufferSize);
+        private static readonly ByteBuffer buf2 = new ByteBuffer(BufferSize);
 
         const ushort BufferSize = 4096;
 
         public readonly byte[] Data;
 
-        public ushort WritePosition = 0;
-        public ushort ReadPosition = 0;
+        public int WritePosition = 0;
+        public int ReadPosition = 0;
         public int Readable { get; private set; }
         public int Unread => Readable - ReadPosition;
         public int Unwritten => Data.Length - WritePosition;
+
+        static bool flag;
 
         private ByteBuffer(ushort maxSize)
         {
@@ -29,14 +32,31 @@ namespace Tobo.Net
 
         public static ByteBuffer Get()
         {
-            send.Reset();
-            return send;
+            flag = !flag;
+            // Motivation: If you are reading a buffer and choose to send a packet halfway
+            //   through, and then keep reading buf
+
+            if (flag)
+            {
+                buf1.Reset();
+                return buf1;
+            }
+            else
+            {
+                buf2.Reset();
+                return buf2;
+            }
         }
 
         public void Reset()
         {
             WritePosition = 0;
             ReadPosition = 0;
+        }
+
+        internal void SetReadable(int readable)
+        {
+            Readable = readable;
         }
 
         #region Byte
@@ -147,9 +167,32 @@ namespace Tobo.Net
             return this;
         }
 
+        public ByteBuffer Write(string[] values)
+        {
+            Write(values.Length);
+            for (int i = 0; i < values.Length; i++)
+            {
+                Write(values[i]);
+            }
+
+            return this;
+        }
+
         public string Read()
         {
             return new string(ReadArray<char>());
+        }
+
+        public string[] ReadStrArray()
+        {
+            int len = Read<int>();
+            string[] array = new string[len];
+            for (int i = 0; i < len; i++)
+            {
+                array[i] = Read();
+            }
+
+            return array;
         }
         #endregion
 
@@ -298,6 +341,14 @@ namespace Tobo.Net
             T value = MemoryMarshal.Read<T>(bytes);
 
             ReadPosition += (ushort)size;
+            return value;
+        }
+
+        public unsafe T Peek<T>() where T : unmanaged
+        {
+            T value = Read<T>();
+            int size = sizeof(T);
+            ReadPosition -= (ushort)size;
             return value;
         }
 
