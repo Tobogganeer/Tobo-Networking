@@ -162,6 +162,12 @@ namespace Tobo.Net
         public ByteBuffer Write(string value)
         {
             // Generates garbage, idc rn its 3:58 am
+            if (value == null || value.Length == 0)
+            {
+                Write((ushort)0);
+                return this;
+            }
+
             Write(value.ToCharArray());
 
             return this;
@@ -169,6 +175,12 @@ namespace Tobo.Net
 
         public ByteBuffer Write(string[] values)
         {
+            if (values == null || values.Length == 0)
+            {
+                Write(0);
+                return this;
+            }
+
             Write(values.Length);
             for (int i = 0; i < values.Length; i++)
             {
@@ -180,6 +192,8 @@ namespace Tobo.Net
 
         public string Read()
         {
+            if (Peek<ushort>() == 0)
+                return "";
             return new string(ReadArray<char>());
         }
 

@@ -227,15 +227,23 @@ namespace Tobo.Net
 
         public ByteBuffer GetBuffer()
         {
+            Type t = GetType();
+            if (!hashes.TryGetValue(t, out var hash))
+            {
+                Debug.LogWarning($"Did not call Packet.Register<{t}>()!");
+                throw new ArgumentException("Unregistered packet!", "T");
+            }    
+
             ByteBuffer buf = ByteBuffer.Get();
-            buf.Write(hashes[GetType()]);
+            buf.Write(hash);
             Serialize(buf);
             return buf;
         }
 
-        public void Send(SendMode mode = SendMode.Reliable)
+        public void Send(Client client, SendMode mode = SendMode.Reliable)
         {
-            NetworkManager.SendToServer(this, mode);
+            client.Send(this, mode);
+            //NetworkManager.SendToServer(this, mode);
         }
 
         public void SendToAll(SendMode mode = SendMode.Reliable)
@@ -243,7 +251,7 @@ namespace Tobo.Net
             NetworkManager.SendToAll(this, mode);
         }
 
-        public void SendTo(Client client, bool blacklist = false, SendMode mode = SendMode.Reliable)
+        public void SendTo(S_Client client, bool blacklist = false, SendMode mode = SendMode.Reliable)
         {
             if (blacklist)
                 NetworkManager.SendToAll(this, client, mode);
@@ -252,9 +260,9 @@ namespace Tobo.Net
         }
 
 
-        internal static void Handle(ByteBuffer packet, Client client)
+        internal static void Handle(ByteBuffer packet, S_Client client)
         {
-            handlers[packet.Read<uint>()]?.Invoke(packet, new Args(client));
+            handlers[packet.Read<uint>()]?.Invoke(packet, new Args(client, true));
         }
 
         internal static void Handle(ByteBuffer packet)
@@ -274,12 +282,14 @@ namespace Tobo.Net
 
         public struct Args
         {
-            public Client client;
+            public S_Client from;
+            public bool ServerSide { get; private set; }
             //public Client Client => Client.All[clientID] ?? null;
 
-            public Args(Client client)
+            public Args(S_Client from, bool serverSide)
             {
-                this.client = client;
+                this.from = from;
+                this.ServerSide = serverSide;
             }
         }
     }

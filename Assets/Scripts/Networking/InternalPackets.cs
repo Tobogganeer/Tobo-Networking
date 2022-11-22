@@ -12,17 +12,23 @@ namespace Tobo.Net
     - Reject or accept
     - Welcome packet + other clients + id
 
+    S_Handshake
+    C_Handshake
+    S_Welcome
+    Ping
+    S_ClientConnected
+    S_ClientDisconnected
 
     */
 
-    public class S_Handshake : Packet
+    internal class S_Handshake : Packet
     {
         public override void Serialize(ByteBuffer buf) { }
 
         public override void Deserialize(ByteBuffer buf, Args args) { }
     }
 
-    public class C_Handshake : Packet
+    internal class C_Handshake : Packet
     {
         public string username;
         const int MaxStringLength = 64;
@@ -40,16 +46,18 @@ namespace Tobo.Net
 
             buf.Write(username);
             NetworkManager.Instance.AddConnectData(buf);
+            //Debug.Log("SEND CHAND: " + buf.Dump());
         }
 
         public override void Deserialize(ByteBuffer buf, Args args)
         {
             username = buf.Read();
+            //Debug.Log("HAND CHAND: " + buf.Dump());
             // Will then be passed to server to accept or reject
         }
     }
 
-    public class S_Welcome : Packet
+    internal class S_Welcome : Packet
     {
         public ushort id;
         public ushort[] otherClientIDs;
@@ -79,27 +87,65 @@ namespace Tobo.Net
 
         public override void Serialize(ByteBuffer buf)
         {
+            // 176 190 158 23 1 0 0 0 0 0     FIRST
+            // 176 190 158 23 1 0 1 0 0 0 2 0 0 0    SECOND
+            // PACKET^^^^^^^^ ID^ CLIENT^ CID STR
+
+            // NEW
+            // 176 190 158 23 2 0 1 0 0 0 0 0 0 0
             buf.Write(id);
-            buf.Write(otherClientIDs);
-            buf.Write(otherClientNames);
+            buf.Write(otherClientIDs.Length);
+
+            for (int i = 0; i < otherClientIDs.Length; i++)
+            {
+                //Debug.Log($"ADDING: '{otherClientNames[i]}' ({otherClientIDs[i]})");
+                buf.Write(otherClientIDs[i]);
+                buf.Write(otherClientNames[i]);
+            }
+
+            //Debug.Log("SEND: " + buf.Dump());
+            //buf.Write(otherClientIDs);
+            //buf.Write(otherClientNames);
         }
 
         public override void Deserialize(ByteBuffer buf, Args args)
         {
+            //Debug.Log("RECV: " + buf.Dump());
+
             id = buf.Read<ushort>();
-            otherClientIDs = buf.ReadArray<ushort>();
-            otherClientNames = buf.ReadStrArray();
+            int num = buf.Read<int>();
+            otherClientIDs = new ushort[num];
+            otherClientNames = new string[num];
+
+            for (int i = 0; i < num; i++)
+            {
+                otherClientIDs[i] = buf.Read<ushort>();
+                otherClientNames[i] = buf.Read();
+            }
+
+            /*
+            if (num == 0)
+            {
+                otherClientIDs = new ushort[0];
+                otherClientNames = new string[0];
+            }
+            else
+            {
+                otherClientIDs = buf.ReadArray<ushort>();
+                otherClientNames = buf.ReadStrArray();
+            }
+            */
         }
     }
 
-    public class Ping : Packet
+    internal class Ping : Packet
     {
         public override void Serialize(ByteBuffer buf) { }
 
         public override void Deserialize(ByteBuffer buf, Args args) { }
     }
 
-    public class S_ClientConnected : Packet
+    internal class S_ClientConnected : Packet
     {
         public ushort id;
         public string name;
@@ -124,7 +170,7 @@ namespace Tobo.Net
         }
     }
 
-    public class S_ClientDisconnected : Packet
+    internal class S_ClientDisconnected : Packet
     {
         public ushort id;
 

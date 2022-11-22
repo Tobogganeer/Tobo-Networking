@@ -13,7 +13,10 @@ namespace Tobo.Net
 
         public ushort ID { get; internal set; }
         public string Username { get; internal set; }
-        public bool IsConnected => connection != 0;
+        public bool IsConnected { get; internal set; }
+        bool connecting = false;
+        //public bool IsConnected => connection != 0;
+        //bool handshaken;
 
         internal NetworkingSockets socketInterface;
         internal uint connection;
@@ -26,9 +29,12 @@ namespace Tobo.Net
         public event Action<Client> ClientDisconnected;
 
         Dictionary<uint, Action<ByteBuffer>> internalHandle;
+        IntPtr statusPtr;
+        StatusCallback callback;
 
         internal Client()
         {
+            socketInterface = new NetworkingSockets();
             // Client constructor
             internalHandle = new Dictionary<uint, Action<ByteBuffer>>()
             {
@@ -38,6 +44,8 @@ namespace Tobo.Net
                 { Packet.HashCache<S_ClientDisconnected>.ID, S_ClientDisconnected},
                 { Packet.HashCache<Ping>.ID, Ping},
             };
+            callback = StatusChanged;
+            statusPtr = Marshal.GetFunctionPointerForDelegate(callback);
         }
         private Client(ushort id, string name)
         {
@@ -48,16 +56,23 @@ namespace Tobo.Net
 
         public void Connect(string username, string ip = "::0", ushort port = 26950)
         {
-            if (IsConnected)
-                Disconnect();
+            socketInterface ??= new NetworkingSockets();
 
+            if (connection != 0)
+            {
+                socketInterface?.CloseConnection(connection, 0, "", false);
+                connection = 0;
+            }
+
+            IsConnected = false;
+            connecting = false;
+            ID = 0;
             this.Username = username;
-            socketInterface = new NetworkingSockets();
 
             Configuration cfg = new Configuration();
             cfg.dataType = ConfigurationDataType.FunctionPtr;
             cfg.value = ConfigurationValue.ConnectionStatusChanged;
-            cfg.data.FunctionPtr = Marshal.GetFunctionPointerForDelegate<StatusCallback>(StatusChanged);
+            cfg.data.FunctionPtr = statusPtr;
 
             Address address = new Address();
 
@@ -65,7 +80,7 @@ namespace Tobo.Net
 
             connection = socketInterface.Connect(ref address, new Configuration[] { cfg });
             if (connection == 0)
-                Debug.LogWarning("Failed to connect!");
+                LogMessage("Failed to connect!");
         }
 
         public void Update()
@@ -77,22 +92,51 @@ namespace Tobo.Net
         public void Disconnect()
         {
             if (connection != 0)
+            {
                 socketInterface?.CloseConnection(connection, 0, "Disconnect", true);
+                connection = 0;
+                Disconnected?.Invoke(); // Not being invoked by status callback
+            }
+            IsConnected = false;
+            connecting = false;
+        }
+
+        internal void Destroy()
+        {
+            if (connection != 0)
+            {
+                socketInterface?.CloseConnection(connection, 0, "", false);
+            }
+
+            socketInterface = null;
+            connection = 0;
         }
 
         void StatusChanged(ref StatusInfo info)
         {
+            if (NetworkManager.Quitting) return;
+
             switch (info.connectionInfo.state)
             {
                 case ConnectionState.None:
                     break;
 
                 case ConnectionState.Connecting:
-                    Debug.Log("Connecting to server");
+                    if (connecting)
+                    {
+                        LogMessage("Double connect?: " + info.connectionInfo.endDebug);
+                        socketInterface.CloseConnection(info.connection, 0, "", false);
+                        connection = 0;
+                        IsConnected = false;
+                        ConnectionFailed?.Invoke();
+                        break;
+                    }
+                    connecting = true;
+                    //Debug.Log("Connecting to server");
                     break;
 
                 case ConnectionState.Connected:
-                    Debug.Log("Connected to server");
+                    //Debug.Log("Connected to server");
                     //Connected?.Invoke();
                     break;
 
@@ -100,32 +144,36 @@ namespace Tobo.Net
                 case ConnectionState.ProblemDetectedLocally:
                     if (info.oldState == ConnectionState.Connecting)
                     {
-                        Debug.Log("Could not connect to server: " + info.connectionInfo.endDebug);
+                        LogMessage("Could not connect to server: " + info.connectionInfo.endDebug);
                         ConnectionFailed?.Invoke();
                     }
                     else if (info.oldState == ConnectionState.ProblemDetectedLocally)
                     {
-                        Debug.Log("Lost contact with server: " + info.connectionInfo.endDebug);
+                        LogMessage("Lost contact with server: " + info.connectionInfo.endDebug);
                         Disconnected?.Invoke();
                     }
                     else
                     {
-                        Debug.Log("Disconnected: " + info.connectionInfo.endDebug);
+                        LogMessage("Connection closed: " + info.connectionInfo.endDebug);
                         Disconnected?.Invoke();
                     }
 
                     //Debug.Log("Client disconnected - ID: " + info.connection + ", IP: " + info.connectionInfo.address.GetIP());
                     socketInterface.CloseConnection(info.connection, 0, "", false);
                     connection = 0;
+                    IsConnected = false;
                     break;
             }
         }
 
         void OnMessage(in NetworkingMessage netMessage)
         {
+            if (NetworkManager.Quitting) return;
+
             //Debug.Log("Message received from SERVER: " + netMessage.connection + ", Channel ID: " + netMessage.channel + ", Data length: " + netMessage.length);
             ByteBuffer buf = ByteBuffer.Get();
             buf.ReadData(netMessage.data, netMessage.length);
+            //Debug.Log($"GOT SERVER MES: {buf.Peek<uint>()} -> {Packet.HashCache<S_Welcome>.ID}");
 
             if (internalHandle.TryGetValue(buf.Peek<uint>(), out var action))
             {
@@ -140,18 +188,62 @@ namespace Tobo.Net
             //MessageReceived?.Invoke(buf);
         }
 
+        public override string ToString()
+        {
+            return $"Client '{Username}' ({ID})";
+        }
+
+        public void LogMessage(string message)
+        {
+            Debug.Log($"[{(ID == 0 || ID == NetworkManager.MyID ? "LOCAL CLIENT" : "CLIENT " + ID)}]: {message}");
+        }
+
+
+        public void Send(Packet packet, SendMode mode = SendMode.Reliable)
+        {
+            if (connection == 0 || socketInterface == null)
+            {
+                Debug.LogWarning("Client send fail.");
+                return;
+            }
+
+            (IntPtr buf, int size) = NetworkManager.Prepare(packet.GetBuffer());
+            try
+            {
+                //Debug.Log($"Sending ");
+                NetworkManager.SendBuffer(buf, size, connection, socketInterface, mode);
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+            finally
+            {
+                NetworkManager.Free(buf);
+            }
+        }
+
 
         void S_Handshake(ByteBuffer buf)
         {
             // Server handshake has no contents
+            LogMessage("Negotiating with server...");
             C_Handshake handshake = new C_Handshake(Username);
-            handshake.Send();
+            Send(handshake);
+            //Debug.Log("CLIENT: Sent handshake back");
         }
 
         void S_Welcome(ByteBuffer buf)
         {
+            //Debug.Log("CONNECTED YIPPEEEE");
+
+            LogMessage($"Connected.");
+            IsConnected = true;
             S_Welcome welcome = new S_Welcome();
             welcome.Deserialize(buf, default);
+            //Debug.Log("GOT WELCOME:: " + welcome.GetBuffer().Dump());
+            // 176 190 158 23 1 0 0 0 0 0     FIRST
+            // 176 190 158 23 1 0 1 0 0 0 2 0 0 0    SECOND
             ID = welcome.id;
             All = new Dictionary<ushort, Client>();
             All.Add(ID, this);
@@ -165,7 +257,8 @@ namespace Tobo.Net
 
             foreach (Client c in All.Values)
             {
-                ClientConnected?.Invoke(c);
+                if (c != this)
+                    ClientConnected?.Invoke(c);
             }
         }
 
@@ -203,15 +296,20 @@ namespace Tobo.Net
 
         internal uint connection;
 
-        internal S_Client(ushort ID, uint connection)
+        internal S_Client(uint connection)
         {
             this.connection = connection;
-            this.ID = ID;
         }
 
-        public void Kick()
+        public void Kick(string reason)
         {
-            NetworkManager.Instance.server.socketInterface.CloseConnection(connection, 0, "Kicked", true);
+            NetworkManager.Instance.server.socketInterface.CloseConnection(connection, 0, reason, true);
+            connection = 0;
+        }
+
+        public override string ToString()
+        {
+            return $"S_Client '{Username}' ({ID})";
         }
     }
 }

@@ -13,16 +13,27 @@ namespace Tobo.Net
         public ushort port = 26950;
         public ushort maxPlayers;
 
-        [Space]
-        public GameObject playerPrefab;
-        public GameObject localPlayerPrefab;
+        //[Space]
+        //public GameObject playerPrefab;
+        //public GameObject localPlayerPrefab;
 
-        internal Server server;
-        internal Client client;
+        protected internal Server server;
+        protected internal Client client;
 
+        public static ushort MyID
+        {
+            get
+            {
+                if (Instance.client != null && Instance.client.IsConnected)
+                    return Instance.client.ID;
+                return 0;
+            }
+        }
+        public static bool Quitting { get; private set; }
         //internal Backend backend;
 
 
+        //DebugCallback debug;
 
         #region Awake / Register Packets
         protected virtual void Awake()
@@ -41,37 +52,47 @@ namespace Tobo.Net
             //backend = GetComponent<Backend>();
             Library.Initialize(); // --
             RegisterInternalPackets();
+
+            /*
+            debug = (type, message) => {
+                Debug.Log("SOCKET - Type: " + type + ", Message: " + message);
+            };
+
+            NetworkingUtils utils = new NetworkingUtils();
+
+            utils.SetDebugCallback(DebugType.Everything, debug);
+            */
         }
 
         private void RegisterInternalPackets()
         {
             // Internal packets here
+            Packet.Register<S_Handshake>();
+            Packet.Register<C_Handshake>();
+            Packet.Register<S_Welcome>();
+            Packet.Register<Ping>();
+            Packet.Register<S_ClientConnected>();
+            Packet.Register<S_ClientDisconnected>();
 
             RegisterPackets();
         }
         protected virtual void RegisterPackets() { }
         protected internal virtual void AddConnectData(ByteBuffer buf) { }
-        protected internal virtual bool AllowConnection(Client c, ByteBuffer connectData) => true;
+        protected internal virtual bool AllowConnection(S_Client c, ByteBuffer connectData, out string failReason)
+        {
+            failReason = "Server Rejected"; 
+            return true;
+        }
         #endregion
 
         #region Send Packets
         public static void SendToServer(Packet message, SendMode sendMode = SendMode.Reliable)
         {
-            if (Instance.client == null || !Instance.client.IsConnected) return;
+            //if (Instance.client == null || !Instance.client.IsConnected) return;
+            if (Instance.client == null) return;
+            // ^^^ So handshakes can be sent
 
-            (IntPtr buf, int size) = Prepare(message.GetBuffer());
-            try
-            {
-                SendBuffer(buf, size, Instance.client.connection, Instance.client.socketInterface, sendMode);
-            }
-            catch (Exception ex)
-            {
-                throw ex;
-            }
-            finally
-            {
-                Free(buf);
-            }
+            Instance.client.Send(message, sendMode);
         }
 
         public static void SendToAll(Packet message, SendMode sendMode = SendMode.Reliable)
@@ -81,7 +102,7 @@ namespace Tobo.Net
             (IntPtr buf, int size) = Prepare(message.GetBuffer());
             try
             {
-                foreach (Client c in Instance.server.clients.Values)
+                foreach (S_Client c in Instance.server.clients.Values)
                 {
                     SendBuffer(buf, size, c.connection, Instance.server.socketInterface, sendMode);
                 }
@@ -96,7 +117,7 @@ namespace Tobo.Net
             }
         }
 
-        public static void SendTo(Packet message, Client client, SendMode sendMode = SendMode.Reliable)
+        public static void SendTo(Packet message, S_Client client, SendMode sendMode = SendMode.Reliable)
         {
             if (Instance.server == null || !Instance.server.Started) return;
 
@@ -115,14 +136,14 @@ namespace Tobo.Net
             }
         }
 
-        public static void SendToAll(Packet message, Client except, SendMode sendMode = SendMode.Reliable)
+        public static void SendToAll(Packet message, S_Client except, SendMode sendMode = SendMode.Reliable)
         {
             if (Instance.server == null || !Instance.server.Started) return;
 
             (IntPtr buf, int size) = Prepare(message.GetBuffer());
             try
             {
-                foreach (Client c in Instance.server.clients.Values)
+                foreach (S_Client c in Instance.server.clients.Values)
                 {
                     if (c != except)
                         SendBuffer(buf, size, c.connection, Instance.server.socketInterface, sendMode);
@@ -213,7 +234,7 @@ namespace Tobo.Net
             Instance.client.Connect(username, "127.0.0.1", Instance.port);
         }
 
-        public static void Join(string username, string ip)
+        public static void Join(string username, string ip = "127.0.0.1")
         {
             Instance.client.Connect(username, ip, Instance.port);
         }
@@ -227,12 +248,18 @@ namespace Tobo.Net
 
 
         #region Start / Update / OnDestroy
-        private void Start()
+        protected virtual void Start()
         {
             server = new Server();
-            server.ClientConnected += ClientJoined;
+            //server.ClientConnected += S_ClientConnected;
+            //server.ClientDisconnected += S_ClientDisconnected;
 
             client = new Client();
+            //client.Connected += C_Connected;
+            //client.ConnectionFailed += C_ConnectionFailed;
+            //client.ClientConnected += C_ClientConnected;
+            //client.ClientDisconnected += C_ClientDisconnected;
+            //client.Disconnected += C_Disconnected;
 
             /*
             Server = new Server();
@@ -247,44 +274,86 @@ namespace Tobo.Net
             */
         }
 
-        private void Update()
+        protected virtual void Update()
         {
             server?.Update();
             client?.Update();
         }
 
-        private void OnDestroy()
+        protected virtual void OnDestroy()
         {
-            server?.Stop();
-            client?.Disconnect();
-            Library.Deinitialize();
+            try
+            {
+                client?.Destroy();
+                client = null;
+
+                server?.Destroy();
+                server = null;
+
+                //Debug.Log("SOCKETS: De-init");
+                Library.Deinitialize();
+                Debug.Log("[SOCKETS]: Shutdown");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("Error terminating! " + ex);
+                throw;
+            }
+        }
+
+        protected virtual void OnApplicationQuit()
+        {
+            Quitting = true;
         }
         #endregion
 
 
-        void ClientJoined(Client client)
-        {
+        // https://www.youtube.com/watch?v=uYLCviZrZVs
+        // ^^^ WATCH THIS
 
+        /*
+        void S_ClientConnected(S_Client client)
+        {
+            Debug.Log($"SERVER: {client.Username} ({client.ID}) connected");
         }
 
-        void Connected()
+        void S_ClientDisconnected(S_Client client)
         {
-
+            Debug.Log($"SERVER: {client.Username} ({client.ID}) disconnected");
         }
 
-        void ConnectFailed()
-        {
 
+        void C_Connected()
+        {
+            Debug.Log($"CLIENT: Connected (id: {MyID})");
         }
 
-        void PlayerLeft()
+        void C_ConnectionFailed()
         {
-
+            Debug.Log($"CLIENT: Connect failed");
         }
 
-        void DidDisconnect()
+        void C_ClientConnected(Client c)
         {
+            Debug.Log($"CLIENT: {c.Username} ({c.ID}) connected");
+        }
 
+        void C_ClientDisconnected(Client c)
+        {
+            Debug.Log($"CLIENT: {c.Username} ({c.ID}) disconnected");
+        }
+
+        void C_Disconnected()
+        {
+            Debug.Log($"CLIENT: Disconnected");
+        }
+        */
+
+
+        [ContextMenu("Dump Clients")]
+        void DumpClients()
+        {
+            server?.DumpClients();
         }
     }
 }

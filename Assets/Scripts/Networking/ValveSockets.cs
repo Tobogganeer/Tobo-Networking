@@ -893,7 +893,11 @@ namespace Valve.Sockets
 	[SuppressUnmanagedCodeSecurity]
 	internal static class Native
 	{
+#if UNITY_64
 		private const string nativeLibrary = "GameNetworkingSockets";
+#else
+		private const string nativeLibrary = "GameNetworkingSockets_32";
+#endif
 		//private const string nativeLibrary = "steam_api";
 
 		[DllImport(nativeLibrary, CallingConvention = CallingConvention.Cdecl)]

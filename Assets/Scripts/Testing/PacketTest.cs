@@ -26,7 +26,7 @@ public class PacketTest : MonoBehaviour
         Packet.Register<TestPacket>();
         TestPacket p = new TestPacket { val = 1 };
         Debug.Log("Sent P");
-        p.Send();
+        //p.Send();
     }
 
     void ValueTest()
