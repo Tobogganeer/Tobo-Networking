@@ -14,6 +14,7 @@ GameObject:
   - component: {fileID: 6988567006282455600}
   - component: {fileID: 119355244779939641}
   - component: {fileID: 662065710745668807}
+  - component: {fileID: -6243516917900478722}
   m_Layer: 0
   m_Name: Remote Player
   m_TagString: Untagged
@@ -114,8 +115,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   speed: 3
   rb: {fileID: 662065710745668807}
-  updateCycle: 4
-  updatesPerSecond: 12.5
+  netTransform: {fileID: -6243516917900478722}
 --- !u!54 &662065710745668807
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -132,3 +132,16 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 112
   m_CollisionDetection: 0
+--- !u!114 &-6243516917900478722
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6529725449881262508}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 27dd879a3eba4774d82558227e5944ff, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncsPerSecond: 20

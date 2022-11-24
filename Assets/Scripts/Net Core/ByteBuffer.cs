@@ -22,6 +22,7 @@ namespace Tobo.Net
         public int Readable { get; private set; }
         public int Unread => Readable - ReadPosition;
         public int Unwritten => Data.Length - WritePosition;
+        public int Written => WritePosition;
 
         static bool flag;
 

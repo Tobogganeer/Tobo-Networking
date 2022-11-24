@@ -19,7 +19,7 @@ public class ToboNetManager : NetworkManager
     protected override void RegisterPackets()
     {
         Packet.Register<SpawnPlayerPacket>();
-        Packet.Register<PlayerPositionPacket>();
+        Packet.Register<NetTransformPacket>();
         //throw new System.NotImplementedException();
     }
 

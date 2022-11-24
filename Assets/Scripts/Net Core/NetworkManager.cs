@@ -13,6 +13,9 @@ namespace Tobo.Net
         public ushort port = 26950;
         public ushort maxPlayers;
 
+        public static ushort Port => Instance.port;
+        public static ushort MaxPlayers => Instance.maxPlayers;
+
         //[Space]
         //public GameObject playerPrefab;
         //public GameObject localPlayerPrefab;
@@ -29,6 +32,8 @@ namespace Tobo.Net
                 return 0;
             }
         }
+        public static bool IsServer => Instance.server != null && Instance.server.Started;
+        public static bool ConnectedToServer => Instance.client != null && Instance.client.IsConnected;
         public static bool Quitting { get; private set; }
         //internal Backend backend;
 
@@ -278,6 +283,7 @@ namespace Tobo.Net
         {
             server?.Update();
             client?.Update();
+            MainThread.UpdateMain();
         }
 
         protected virtual void OnDestroy()
